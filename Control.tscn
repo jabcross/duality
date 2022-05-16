@@ -1,0 +1,28 @@
+[gd_scene load_steps=6 format=2]
+
+[ext_resource path="res://addons/dockable_container/layout.gd" type="Script" id=1]
+[ext_resource path="res://addons/dockable_container/dockable_container.gd" type="Script" id=2]
+[ext_resource path="res://addons/dockable_container/layout_panel.gd" type="Script" id=3]
+
+[sub_resource type="Resource" id=1]
+resource_name = "Tabs"
+script = ExtResource( 3 )
+names = PoolStringArray(  )
+current_tab = -1
+
+[sub_resource type="Resource" id=2]
+resource_name = "Layout"
+script = ExtResource( 1 )
+root = SubResource( 1 )
+hidden_tabs = {
+}
+
+[node name="Control" type="Control"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="DockableContainer" type="Container" parent="."]
+margin_right = 40.0
+margin_bottom = 40.0
+script = ExtResource( 2 )
+layout = SubResource( 2 )
