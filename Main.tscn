@@ -30,4 +30,5 @@ margin_right = 1024.0
 margin_bottom = 600.0
 size_flags_horizontal = 3
 script = ExtResource( 3 )
-base_distance = 21.755
+base_distance = 55.974
+intermediary_nodes = 0

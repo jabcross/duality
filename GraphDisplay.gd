@@ -4,9 +4,17 @@ var nodes_by_name := {}
 var edges := []
 var graph_distances := {}
 var intermediaries := {}
+var gdscript_parser := GDScriptParser.new()
 export(float, 1, 200) var base_distance : float = 100.0
 export(float, 1, 200) var force_scale : float = 100.0
 export(int, 0, 10) var intermediary_nodes : int = 2 setget set_intermediary_nodes
+
+enum UPDATE_STRATEGY {
+	n2,
+	neighbors_only
+}
+
+var update_strategy : int = UPDATE_STRATEGY.neighbors_only
 
 func set_intermediary_nodes(num_nodes: int):
 	if not get_tree():
@@ -16,7 +24,7 @@ func set_intermediary_nodes(num_nodes: int):
 	intermediary_nodes = num_nodes
 	if text_edit:
 		clear_all_intermediaries()
-		update_from_text()
+		update_from_text_simple_graph()
 	base_distance *= float(old_value + 1)
 	base_distance /= num_nodes + 1
 
@@ -36,7 +44,6 @@ func delete_node(node: DualNode):
 onready var text_edit: TextEdit = $"../TextEdit"
 
 func maybe_create(id: String, _match: RegExMatch) -> DualNode:
-	assert(_match != null)
 	if not id in nodes_by_name:
 		var new_node : DualNode = preload("res://DualNode.tscn").instance()
 		add_child(new_node)
@@ -47,7 +54,8 @@ func maybe_create(id: String, _match: RegExMatch) -> DualNode:
 		new_node.connect("mouse_entered",self,"on_hover_node", [new_node])
 		new_node.connect("mouse_exited",self,"on_leave_node", [new_node])
 	var node = nodes_by_name[id]
-	node.matches[_match] = true
+	if _match:
+		node.matches[_match] = true
 	return node
 
 func is_identifier(_match: RegExMatch):
@@ -80,7 +88,26 @@ func connect_nodes_with_intermediaries(a: DualNode, b: DualNode, _match: RegExMa
 		curr_node = inter
 	__connect(curr_node, b)
 
-func update_from_text():
+func update_from_text_gdscript2():
+	var to_delete = nodes_by_name.keys()
+	var connections := []
+	for node in nodes_by_name.values():
+		node.matches = {}
+	var file := File.new()
+	file.open("res://GraphDisplay.gd", File.READ)
+	var nodes = gdscript_parser.parse(file.get_as_text())
+	for node in nodes:
+		var new_node = maybe_create(node, nodes[node])
+		new_node.neighbors.clear()
+		to_delete.erase(node)
+		if node != "0":
+			connect_nodes_with_intermediaries(new_node, nodes_by_name[String(int(node) - 1)], null)
+	for id in to_delete:
+		nodes_by_name[id].queue_free()
+		nodes_by_name.erase(id)
+	pass
+
+func update_from_text_simple_graph():
 	var matches : Array = text_edit.tokenize()
 	var connections := []
 	var to_delete = nodes_by_name.keys()
@@ -94,7 +121,7 @@ func update_from_text():
 			var node = maybe_create(id, Match)
 			node.neighbors.clear()
 			to_delete.erase(id)
-		if (is_connection(Match) 
+		if (is_connection(Match)
 				and index > 0
 				and is_identifier(matches[index-1])
 				and index < matches.size() - 1
@@ -198,43 +225,58 @@ func untangle():
 func _draw():
 	for edge in edges:
 		draw_line(edge[0].rect_position, edge[1].rect_position, Color.red, 2.0)
-		
+
+func calculate_force(a: DualNode, b: DualNode, forces: Dictionary):
+	var node_a : DualNode = a
+	var node_b : DualNode = b
+	var g_dist = get_graph_distance(node_a, node_b)
+	var distance = base_distance
+	if g_dist != null:
+		distance *= g_dist
+	else:
+		distance *= 5.0
+	var force_offset = node_a.rect_position.distance_to(node_b.rect_position) - distance
+	var force = node_a.rect_position.direction_to(node_b.rect_position) * force_offset
+	if g_dist == null and force_offset > 0:
+		force = Vector2.ZERO
+	if not a in forces:
+		forces[a] = force
+	else:
+		forces[a] += force
+
 func _process(delta: float):
 	var forces = {}
-	for a in nodes_by_name.values():
-		forces[a] = Vector2.ZERO
-		for b in nodes_by_name.values():
-			if a != b:
-				var node_a : DualNode = a
-				var node_b : DualNode = b
-				var g_dist = get_graph_distance(node_a, node_b)
-				var distance = base_distance
-				if g_dist != null:
-					distance *= g_dist
-				else:
-					distance *= 5.0
-				var force_offset = node_a.rect_position.distance_to(node_b.rect_position) - distance
-				var force = node_a.rect_position.direction_to(node_b.rect_position) * force_offset
-				if g_dist == null and force_offset > 0:
-					force = Vector2.ZERO
-				forces[a] += force
+	match update_strategy:
+		UPDATE_STRATEGY.n2:
+			for a in nodes_by_name.values():
+				forces[a] = Vector2.ZERO
+				for b in nodes_by_name.values():
+					if a != b:
+						calculate_force(a as DualNode, b as DualNode, forces)
+
+		UPDATE_STRATEGY.neighbors_only:
+			for a in nodes_by_name.values():
+				var levels = 5;
+				var node_a := a as DualNode
+				var neighbors := {}
+				var curr_level := {node_a: true}
+				while levels > 0:
+					var new_level = {}
+					for node in curr_level:
+						for n in node.neighbors:
+							new_level[n] = true
+							neighbors[n] = true
+					curr_level = new_level
+					levels -= 1
+				neighbors.erase(node_a)
+				for n in neighbors:
+					calculate_force(node_a, n, forces)
 
 	var avg = Vector2.ZERO
 	for node in nodes_by_name.values():
-		node.rect_position += forces[node] * delta
-		avg += node.rect_position
-#	for node in nodes_by_name.values():
-#		for edge in edges:
-#			if not node in edge:
-#				var middle = (edge[0].rect_position + edge[1].rect_position) / 2.0
-#				var direction = middle - node.rect_position
-#				var strength = force_unconnected.interpolate(direction.length() / 1000.0)
-#				if strength > 0.0:
-#					strength = 0.0
-#				var displacement = strength * direction * delta
-#				node.rect_position += displacement 
-#				edge[0].rect_position -= displacement / 2.0
-#				edge[1].rect_position -= displacement / 2.0
+		if node in forces:
+			node.rect_position += forces[node] * delta
+			avg += node.rect_position
 	avg /= nodes_by_name.size()
 	avg -= rect_size / 2.0
 	for node in nodes_by_name.values():

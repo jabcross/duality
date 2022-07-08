@@ -14,7 +14,7 @@ func _input(event: InputEvent):
 	var key_event := event as InputEventKey
 	if key_event and key_event.pressed and \
 			key_event.scancode == KEY_ENTER and key_event.control:
-		$"../GraphDisplay".update_from_text()
+		$"../GraphDisplay".update_from_text_simple_graph()
 		get_viewport().set_input_as_handled()
 
 func get_line_col_from_offset(offset: int)->Vector2:
